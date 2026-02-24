@@ -1138,30 +1138,46 @@ async def check_pending_homework_timeout():
     и отправляет их на n8n webhook если админ не ответил.
     """
     global HW_TIMEOUT_SECONDS
+    logger.info("=" * 80)
+    logger.info(f"check_pending_homework_timeout START")
+    logger.info(f"HW_TIMEOUT_SECONDS={HW_TIMEOUT_SECONDS}")
+    logger.info(f"N8N_HOMEWORK_CHECK_WEBHOOK_URL={N8N_HOMEWORK_CHECK_WEBHOOK_URL}")
+    logger.info("=" * 80)
+    
     while True:
         try:
             await asyncio.sleep(60)
             
+            logger.info(f"check_pending_homework_timeout: проверка через 60 сек")
+
             if not N8N_HOMEWORK_CHECK_WEBHOOK_URL:
+                logger.info(f"check_pending_homework_timeout: N8N_WEBHOOK не настроен, пропускаем")
                 continue
-            
+
             async with aiosqlite.connect(DB_FILE) as conn:
                 cutoff_time = datetime.now(pytz.utc) - timedelta(seconds=HW_TIMEOUT_SECONDS)
                 cutoff_time_str = cutoff_time.strftime('%Y-%m-%d %H:%M:%S')
                 
+                logger.info(f"check_pending_homework_timeout: cutoff_time_str={cutoff_time_str}")
+
                 cursor = await conn.execute('''
-                    SELECT admin_message_id, admin_chat_id, student_user_id, 
+                    SELECT admin_message_id, admin_chat_id, student_user_id,
                            course_numeric_id, lesson_num, student_message_id, created_at
                     FROM pending_admin_homework
                     WHERE created_at < ?
                 ''', (cutoff_time_str,))
-                
+
                 pending_rows = await cursor.fetchall()
                 
+                logger.info(f"check_pending_homework_timeout: найдено {len(pending_rows)} pending ДЗ")
+
                 for row in pending_rows:
                     admin_msg_id, admin_chat_id, student_user_id, course_numeric_id, lesson_num, student_msg_id, created_at = row
                     
+                    logger.info(f"check_pending_homework_timeout: pending ДЗ admin_msg_id={admin_msg_id}, student_user_id={student_user_id}, course_numeric_id={course_numeric_id}, lesson_num={lesson_num}, created_at={created_at}")
+
                     if admin_msg_id in homework_sent_to_n8n:
+                        logger.info(f"check_pending_homework_timeout: ДЗ #{admin_msg_id} уже отправлено на n8n, пропускаем")
                         continue
                     
                     cursor_student = await conn.execute(
@@ -2291,7 +2307,7 @@ async def get_next_lesson_time(user_id: int, course_id: str, current_lesson_for_
         user_id: ID пользователя.
         course_id: ID курса.
         current_lesson_for_display: Номер урока, который СЕЙЧАС отображается в меню
-                                     (то есть, последний отправленный пользователю).
+                                     (то есть, ��оследний отправленный пользователю).
     """
     logger.debug(
         f"get_next_lesson_time: user_id={user_id}, course_id={course_id}, current_lesson_for_display={current_lesson_for_display}")
@@ -8730,18 +8746,22 @@ async def handle_homework(message: types.Message):
             logger.info(f"ЛОГ A20: ВОЗВРАТ ИЗ ФУНКЦИИ")
             logger.info("=" * 80)
 
+            # 🔴 ЗАКОММЕНЧЕНО - ВАЖНО ДЛЯ ОТЛАДКИ!
             # ДЗ уже одобрено — игнорируем, просто говорим когда следующий урок
-            logger.info(f"ДЗ для урока {current_lesson} уже одобрено — игнорируем повторную отправку")
+            # logger.info(f"ДЗ для урока {current_lesson} уже одобрено — игнорируем повторную отправку")
 
-            # Получаем время следующего урока
-            next_lesson_display_text_safe = escape_md(await get_next_lesson_time(user_id, course_id, current_lesson))
+            # 🔴 РАЗКОММЕНТИРОВАТЬ ПОСЛЕ ОТЛАДКИ:
+            # next_lesson_display_text_safe = escape_md(await get_next_lesson_time(user_id, course_id, current_lesson))
+            # await message.answer(
+            #     f"✅ Домашка уже засчитана!\n\n"
+            #     f"🕒 Следующий урок: {next_lesson_display_text_safe}",
+            #     parse_mode=None
+            # )
+            # return
 
-            await message.answer(
-                f"✅ Домашка уже засчитана!\n\n"
-                f"🕒 Следующий урок: {next_lesson_display_text_safe}",
-                parse_mode=None
-            )
-            return  # НЕ отправляем админу и не создаём pending запись
+            # 🔴 ВРЕМЕННО - ПРОДОЛЖАЕМ ОБРАБОТКУ ДЛЯ ОТЛАДКИ!
+            logger.info(f"🔴 ПРОДОЛЖАЕМ ОБРАБОТКУ НЕСМОТРЯ НА hw_status='approved' ДЛЯ ОТЛАДКИ!")
+
         else:
             logger.info(f"ЛОГ A15: УСЛОВИЕ НЕ ВЫПОЛНЕНО - hw_status != 'approved'")
             logger.info(f"ЛОГ A16: Продолжаем обработку ДЗ")
@@ -9268,7 +9288,7 @@ async def handle_activation_code(message: types.Message): # handle_activation_co
             logger.info(f"7 1318 course_data:Найдены данные курса: {course_data}")
 
         if not course_data:
-            return await message.answer("Неверное кодовое слово. Попробуйте еще раз или свяжитесь с поддержкой.", parse_mode=None)
+            return await message.answer("Неверное кодовое слово. ��опробуйте еще раз или свяжитесь с поддержкой.", parse_mode=None)
 
         course_id, version_id, course_name = course_data
 
