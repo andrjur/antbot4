@@ -8537,6 +8537,10 @@ async def handle_homework(message: types.Message):
     logger.info(f" строка 4162 {user_course_data=}")
     if not user_course_data:
         logger.info(f"ЛОГ #2: user_course_data=None, активируем курс")
+        # ОСТАНОВИТЬ шедулер чтобы не было гонки данных
+        await stop_lesson_schedule_task(user_id)
+        logger.info(f"ЛОГ #2a: Шедулер остановлен перед активацией")
+        
         await message.answer("Проверяю код", parse_mode=None)
         activation_result = await activate_course(user_id, message.text) # Get status code
         is_activated = activation_result[0]
@@ -8549,6 +8553,10 @@ async def handle_homework(message: types.Message):
 # ======================== вот тут активация ===================================
         if is_activated:
             logger.info(f"ЛОГ #5: 444 is_activated now")
+            # ОСТАНОВИТЬ шедулер ещё раз на всякий случай
+            await stop_lesson_schedule_task(user_id)
+            logger.info(f"ЛОГ #5a: Шедулер остановлен перед загрузкой данных")
+            
             # Load course data to get course_id and version_id
             async with aiosqlite.connect(DB_FILE) as conn:
                 try:
@@ -8560,7 +8568,7 @@ async def handle_homework(message: types.Message):
 
                     new_course_data = await cursor.fetchone()
                     course_id, version_id = new_course_data
-                    
+
                     logger.info(f"ЛОГ #6: ACTIVATION: course_id={course_id}, version_id={version_id} ИЗ БД")
                     logger.info(f"ЛОГ #7: ПЕРЕД КОММИТОМ course_id={course_id}")
 
@@ -8577,16 +8585,16 @@ async def handle_homework(message: types.Message):
             logger.info(f"ЛОГ #10: Вызов get_course_title для course_id={course_id}")
             course_title = await get_course_title(course_id)
             logger.info(f"ЛОГ #11: course_title={course_title}")
-            
+
             logger.info(f"ЛОГ #12: Вызов get_course_id_int для course_id={course_id}")
             course_numeric_id = await get_course_id_int(course_id)
             logger.info(f"ЛОГ #13: course_numeric_id={course_numeric_id}")
-            
+
             tariff_name = get_tariff_name(version_id)
             logger.info(f"ЛОГ #14: tariff_name={tariff_name}")
-            
+
             logger.info(f"ЛОГ #15: ПЕРЕД send_course_description course_id={course_id}")
-            
+
             if course_numeric_id == 0:
                 logger.error(f"Не найден курс {course_id=}")
             lesson_num = 0  # After activation the first lesson is shown
@@ -8596,6 +8604,10 @@ async def handle_homework(message: types.Message):
             logger.info(f" message_interval = {message_interval} ")
 
             await send_course_description(user_id, course_id)
+            
+            # ПЕРЕЗАПУСТИТЬ шедулер для нового курса
+            await start_lesson_schedule_task(user_id)
+            logger.info(f"ЛОГ #16: Шедулер перезапущен для нового курса")
 
             logger.info(f"3 перед созданием клавиатуры course_id={course_id}, course_numeric_id={course_numeric_id}")
             keyboard = get_main_menu_inline_keyboard(  # await убрали
@@ -8683,46 +8695,47 @@ async def handle_homework(message: types.Message):
 
     # ===== ПРОВЕРКА: ЕСЛИ ДЗ УЖЕ ОДОБРЕНО ДЛЯ ЭТОГО УРОКА =====
     logger.info("=" * 80)
-    logger.info(f"ЛОГ #1: ПРОВЕРКА hw_status НАЧАЛО")
-    logger.info(f"ЛОГ #2: user_id={user_id}")
-    logger.info(f"ЛОГ #3: course_id={course_id}")
-    logger.info(f"ЛОГ #4: course_numeric_id={course_numeric_id}")
-    logger.info(f"ЛОГ #5: current_lesson={current_lesson}")
-    logger.info(f"ЛОГ #6: version_id={version_id}")
-    
+    logger.info(f"ЛОГ A1: ПРОВЕРКА hw_status НАЧАЛО")
+    logger.info(f"ЛОГ A2: user_id={user_id}")
+    logger.info(f"ЛОГ A3: course_id={course_id}")
+    logger.info(f"ЛОГ A4: course_numeric_id={course_numeric_id}")
+    logger.info(f"ЛОГ A5: current_lesson={current_lesson}")
+    logger.info(f"ЛОГ A6: version_id={version_id}")
+
     async with aiosqlite.connect(DB_FILE) as conn_check:
-        logger.info(f"ЛОГ #7: Подключение к БД для проверки hw_status")
+        logger.info(f"ЛОГ A7: Подключение к БД для проверки hw_status")
         cursor_hw_status = await conn_check.execute(
-            "SELECT hw_status FROM user_courses WHERE user_id = ? AND course_id = ?",
+            "SELECT hw_status, hw_type FROM user_courses WHERE user_id = ? AND course_id = ? AND status = 'active'",
             (user_id, course_id)
         )
-        logger.info(f"ЛОГ #8: SQL запрос выполнен")
+        logger.info(f"ЛОГ A8: SQL запрос выполнен")
         hw_status_row = await cursor_hw_status.fetchone()
-        logger.info(f"ЛОГ #9: hw_status_row={hw_status_row}")
-        
+        logger.info(f"ЛОГ A9: hw_status_row={hw_status_row}")
+
         if hw_status_row:
-            logger.info(f"ЛОГ #10: hw_status_row[0]={hw_status_row[0]}")
-            logger.info(f"ЛОГ #11: hw_status_row[0] == 'approved' → {hw_status_row[0] == 'approved'}")
+            logger.info(f"ЛОГ A10: hw_status_row[0]={hw_status_row[0]}")
+            logger.info(f"ЛОГ A11: hw_status_row[1]={hw_status_row[1]}")
+            logger.info(f"ЛОГ A12: hw_status_row[0] == 'approved' → {hw_status_row[0] == 'approved'}")
         else:
-            logger.info(f"ЛОГ #12: hw_status_row is None")
-        
-        logger.info(f"ЛОГ #13: Проверка условия hw_status_row and hw_status_row[0] == 'approved'")
-        
+            logger.info(f"ЛОГ A13: hw_status_row is None")
+
+        logger.info(f"ЛОГ A14: Проверка условия hw_status_row and hw_status_row[0] == 'approved'")
+
         if hw_status_row and hw_status_row[0] == 'approved':
-            logger.info(f"ЛОГ #14: УСЛОВИЕ ВЫПОЛНЕНО - hw_status='approved'")
-            logger.info(f"ЛОГ #15: ДЗ для урока {current_lesson} уже одобрено — игнорируем повторную отправку")
-            logger.info(f"ЛОГ #16: user_id={user_id}")
-            logger.info(f"ЛОГ #17: course_id={course_id}")
-            logger.info(f"ЛОГ #18: current_lesson={current_lesson}")
-            logger.info(f"ЛОГ #19: ВОЗВРАТ ИЗ ФУНКЦИИ")
+            logger.info(f"ЛОГ A15: УСЛОВИЕ ВЫПОЛНЕНО - hw_status='approved'")
+            logger.info(f"ЛОГ A16: ДЗ для урока {current_lesson} уже одобрено")
+            logger.info(f"ЛОГ A17: version_id={version_id}")
+            logger.info(f"ЛОГ A18: Если version_id='v1' это нормально (самопроверка)")
+            logger.info(f"ЛОГ A19: Если version_id='v2' или 'v3' это ПРОБЛЕМА!")
+            logger.info(f"ЛОГ A20: ВОЗВРАТ ИЗ ФУНКЦИИ")
             logger.info("=" * 80)
-            
+
             # ДЗ уже одобрено — игнорируем, просто говорим когда следующий урок
             logger.info(f"ДЗ для урока {current_lesson} уже одобрено — игнорируем повторную отправку")
-            
+
             # Получаем время следующего урока
             next_lesson_display_text_safe = escape_md(await get_next_lesson_time(user_id, course_id, current_lesson))
-            
+
             await message.answer(
                 f"✅ Домашка уже засчитана!\n\n"
                 f"🕒 Следующий урок: {next_lesson_display_text_safe}",
@@ -8730,9 +8743,9 @@ async def handle_homework(message: types.Message):
             )
             return  # НЕ отправляем админу и не создаём pending запись
         else:
-            logger.info(f"ЛОГ #14: УСЛОВИЕ НЕ ВЫПОЛНЕНО - hw_status != 'approved'")
-            logger.info(f"ЛОГ #15: Продолжаем обработку ДЗ")
-    
+            logger.info(f"ЛОГ A15: УСЛОВИЕ НЕ ВЫПОЛНЕНО - hw_status != 'approved'")
+            logger.info(f"ЛОГ A16: Продолжаем обработку ДЗ")
+
     logger.info("=" * 80)
 
     # Если тариф v1 → самопроверка
